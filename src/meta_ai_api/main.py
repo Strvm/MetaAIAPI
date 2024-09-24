@@ -49,7 +49,8 @@ class MetaAI:
                 "Unable to connect to proxy. Please check your proxy settings."
             )
 
-        self.is_authed = fb_password is not None and fb_email is not None
+        self.is_authed = (
+            fb_password is not None and fb_email is not None) or fb_cookies is not None
         self.cookies = self.get_cookies()
         self.external_conversation_id = None
         self.offline_threading_id = None
@@ -342,8 +343,8 @@ class MetaAI:
 
         # Allow override of FB cookies if provided, use to get meta ai session
         if self.fb_cookies is not None:
-            meta_session = get_meta_ai_session(self.fb_cookies)
-            headers = {"cookie": f'abra_sess={meta_session["abra_sess"]}'}
+            fb_session = get_meta_ai_session(self.fb_cookies)
+            headers = {"cookie": f'abra_sess={fb_session["abra_sess"]}'}
 
         if self.fb_email is not None and self.fb_password is not None:
             fb_session = get_fb_session(self.fb_email, self.fb_password)
