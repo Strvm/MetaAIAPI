@@ -9,9 +9,11 @@ import requests
 from requests_html import HTMLSession
 
 from meta_ai_api.utils import (
+    FbSessionCookies,
     generate_offline_threading_id,
     extract_value,
     format_response,
+    get_meta_ai_session,
 )
 
 from meta_ai_api.utils import get_fb_session
@@ -28,7 +30,7 @@ class MetaAI:
     """
 
     def __init__(
-        self, fb_email: str = None, fb_password: str = None, proxy: dict = None
+        self, fb_email: str = None, fb_password: str = None, proxy: dict = None, fb_cookies: FbSessionCookies = None
     ):
         self.session = requests.Session()
         self.session.headers.update(
@@ -40,13 +42,15 @@ class MetaAI:
         self.access_token = None
         self.fb_email = fb_email
         self.fb_password = fb_password
+        self.fb_cookies = fb_cookies
         self.proxy = proxy
         if self.proxy and not self.check_proxy():
             raise ConnectionError(
                 "Unable to connect to proxy. Please check your proxy settings."
             )
 
-        self.is_authed = fb_password is not None and fb_email is not None
+        self.is_authed = (
+            fb_password is not None and fb_email is not None) or fb_cookies is not None
         self.cookies = self.get_cookies()
         self.external_conversation_id = None
         self.offline_threading_id = None
@@ -62,7 +66,8 @@ class MetaAI:
             bool: True if the proxy is working, False otherwise.
         """
         try:
-            response = self.session.get(test_url, proxies=self.proxy, timeout=10)
+            response = self.session.get(
+                test_url, proxies=self.proxy, timeout=10)
             if response.status_code == 200:
                 self.session.proxies = self.proxy
                 return True
@@ -189,7 +194,8 @@ class MetaAI:
             self.session = requests.Session()
             self.session.proxies = self.proxy
 
-        response = self.session.post(url, headers=headers, data=payload, stream=stream)
+        response = self.session.post(
+            url, headers=headers, data=payload, stream=stream)
         if not stream:
             raw_response = response.text
             last_streamed_response = self.extract_last_response(raw_response)
@@ -245,7 +251,8 @@ class MetaAI:
             )
             chat_id = bot_response_message.get("id")
             if chat_id:
-                external_conversation_id, offline_threading_id, _ = chat_id.split("_")
+                external_conversation_id, offline_threading_id, _ = chat_id.split(
+                    "_")
                 self.external_conversation_id = external_conversation_id
                 self.offline_threading_id = offline_threading_id
 
@@ -284,7 +291,8 @@ class MetaAI:
             Tuple (str, list): Response message and list of sources.
         """
         bot_response_message = (
-            json_line.get("data", {}).get("node", {}).get("bot_response_message", {})
+            json_line.get("data", {}).get("node", {}).get(
+                "bot_response_message", {})
         )
         response = format_response(response=json_line)
         fetch_id = bot_response_message.get("fetch_id")
@@ -306,7 +314,8 @@ class MetaAI:
         imagine_card = json_line.get("imagine_card", {})
         session = imagine_card.get("session", {}) if imagine_card else {}
         media_sets = (
-            (json_line.get("imagine_card", {}).get("session", {}).get("media_sets", []))
+            (json_line.get("imagine_card", {}).get(
+                "session", {}).get("media_sets", []))
             if imagine_card and session
             else []
         )
@@ -331,9 +340,16 @@ class MetaAI:
         """
         session = HTMLSession()
         headers = {}
+
+        # Allow override of FB cookies if provided, use to get meta ai session
+        if self.fb_cookies is not None:
+            fb_session = get_meta_ai_session(self.fb_cookies)
+            headers = {"cookie": f'abra_sess={fb_session["abra_sess"]}'}
+
         if self.fb_email is not None and self.fb_password is not None:
             fb_session = get_fb_session(self.fb_email, self.fb_password)
             headers = {"cookie": f"abra_sess={fb_session['abra_sess']}"}
+
         response = session.get(
             "https://www.meta.ai/",
             headers=headers,

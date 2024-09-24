@@ -1,12 +1,22 @@
 import logging
 import random
 import time
+from typing import TypedDict
 
 from requests_html import HTMLSession
 import requests
 from bs4 import BeautifulSoup
 
 from meta_ai_api.exceptions import FacebookInvalidCredentialsException
+
+
+class FbSessionCookies(TypedDict):
+    datr: str
+    sb: str
+    xs: str
+    fr: str
+    c_user: str
+    m_page_voice: str
 
 
 def generate_offline_threading_id() -> str:
@@ -80,7 +90,98 @@ def format_response(response: dict) -> str:
     return text
 
 
+def get_meta_ai_session(fb_session_cookies: FbSessionCookies, proxies=None):
+    """
+    Function to get a session with Meta AI.
+
+    Args:
+        fb_session_cookies (FbSessionCookies): The Facebook session cookies.
+        proxies (dict, optional): The proxies to use for the requests. Defaults to None.
+
+    Returns:
+        dict: The cookies for the Meta AI session.
+    """
+    response_login = {
+        "cookies": fb_session_cookies,
+    }
+    meta_ai_cookies = get_cookies()
+
+    url = "https://www.meta.ai/state/"
+
+    payload = f'__a=1&lsd={meta_ai_cookies["lsd"]}'
+    headers = {
+        "authority": "www.meta.ai",
+        "accept": "*/*",
+        "accept-language": "en-US,en;q=0.9",
+        "cache-control": "no-cache",
+        "content-type": "application/x-www-form-urlencoded",
+        "cookie": f'ps_n=1; ps_l=1; dpr=2; _js_datr={meta_ai_cookies["_js_datr"]}; abra_csrf={meta_ai_cookies["abra_csrf"]}; datr={meta_ai_cookies["datr"]};; ps_l=1; ps_n=1',
+        "origin": "https://www.meta.ai",
+        "pragma": "no-cache",
+        "referer": "https://www.meta.ai/",
+        "sec-fetch-mode": "cors",
+        "sec-fetch-site": "same-origin",
+        "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+    }
+
+    response = requests.request(
+        "POST", url, headers=headers, data=payload, proxies=proxies)
+
+    state = extract_value(response.text, start_str='"state":"', end_str='"')
+
+    url = f"https://www.facebook.com/oidc/?app_id=1358015658191005&scope=openid%20linking&response_type=code&redirect_uri=https%3A%2F%2Fwww.meta.ai%2Fauth%2F&no_universal_links=1&deoia=1&state={state}"
+    payload = {}
+    headers = {
+        "authority": "www.facebook.com",
+        "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+        "accept-language": "en-US,en;q=0.9",
+        "cache-control": "no-cache",
+        "cookie": f"datr={response_login['cookies']['datr']}; sb={response_login['cookies']['sb']}; c_user={response_login['cookies']['c_user']}; xs={response_login['cookies']['xs']}; fr={response_login['cookies']['fr']}; m_page_voice={response_login['cookies']['m_page_voice']}; abra_csrf={meta_ai_cookies['abra_csrf']};",
+        "sec-fetch-dest": "document",
+        "sec-fetch-mode": "navigate",
+        "sec-fetch-site": "cross-site",
+        "sec-fetch-user": "?1",
+        "upgrade-insecure-requests": "1",
+        "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+    }
+    session = requests.session()
+    session.proxies = proxies
+    response = session.get(url, headers=headers,
+                           data=payload, allow_redirects=False)
+
+    next_url = response.headers["Location"]
+
+    url = next_url
+
+    payload = {}
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:125.0) Gecko/20100101 Firefox/125.0",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.5",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Referer": "https://www.meta.ai/",
+        "Connection": "keep-alive",
+        "Cookie": f'dpr=2; abra_csrf={meta_ai_cookies["abra_csrf"]}; datr={meta_ai_cookies["_js_datr"]}',
+        "Upgrade-Insecure-Requests": "1",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "cross-site",
+        "Sec-Fetch-User": "?1",
+        "TE": "trailers",
+    }
+    session.get(url, headers=headers, data=payload)
+    cookies = session.cookies.get_dict()
+    if "abra_sess" not in cookies:
+        raise FacebookInvalidCredentialsException(
+            "Was not able to login to Facebook. Please check your credentials. "
+            "You may also have been rate limited. Try to connect to Facebook manually."
+        )
+    logging.info("Successfully logged in to Facebook.")
+    return cookies
+
 # Function to perform the login
+
+
 def get_fb_session(email, password, proxies=None):
     login_url = "https://mbasic.facebook.com/login/"
     headers = {
@@ -159,83 +260,7 @@ def get_fb_session(email, password, proxies=None):
         "c_user": session.cookies["c_user"],
     }
 
-    response_login = {
-        "cookies": cookies,
-        "headers": result.headers,
-        "response": response.text,
-    }
-    meta_ai_cookies = get_cookies()
-
-    url = "https://www.meta.ai/state/"
-
-    payload = f'__a=1&lsd={meta_ai_cookies["lsd"]}'
-    headers = {
-        "authority": "www.meta.ai",
-        "accept": "*/*",
-        "accept-language": "en-US,en;q=0.9",
-        "cache-control": "no-cache",
-        "content-type": "application/x-www-form-urlencoded",
-        "cookie": f'ps_n=1; ps_l=1; dpr=2; _js_datr={meta_ai_cookies["_js_datr"]}; abra_csrf={meta_ai_cookies["abra_csrf"]}; datr={meta_ai_cookies["datr"]};; ps_l=1; ps_n=1',
-        "origin": "https://www.meta.ai",
-        "pragma": "no-cache",
-        "referer": "https://www.meta.ai/",
-        "sec-fetch-mode": "cors",
-        "sec-fetch-site": "same-origin",
-        "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-    }
-
-    response = requests.request("POST", url, headers=headers, data=payload, proxies=proxies)
-
-    state = extract_value(response.text, start_str='"state":"', end_str='"')
-
-    url = f"https://www.facebook.com/oidc/?app_id=1358015658191005&scope=openid%20linking&response_type=code&redirect_uri=https%3A%2F%2Fwww.meta.ai%2Fauth%2F&no_universal_links=1&deoia=1&state={state}"
-    payload = {}
-    headers = {
-        "authority": "www.facebook.com",
-        "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
-        "accept-language": "en-US,en;q=0.9",
-        "cache-control": "no-cache",
-        "cookie": f"datr={response_login['cookies']['datr']}; sb={response_login['cookies']['sb']}; c_user={response_login['cookies']['c_user']}; xs={response_login['cookies']['xs']}; fr={response_login['cookies']['fr']}; m_page_voice={response_login['cookies']['m_page_voice']}; abra_csrf={meta_ai_cookies['abra_csrf']};",
-        "sec-fetch-dest": "document",
-        "sec-fetch-mode": "navigate",
-        "sec-fetch-site": "cross-site",
-        "sec-fetch-user": "?1",
-        "upgrade-insecure-requests": "1",
-        "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-    }
-    session = requests.session()
-    session.proxies = proxies
-    response = session.get(url, headers=headers, data=payload, allow_redirects=False)
-
-    next_url = response.headers["Location"]
-
-    url = next_url
-
-    payload = {}
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:125.0) Gecko/20100101 Firefox/125.0",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.5",
-        "Accept-Encoding": "gzip, deflate, br",
-        "Referer": "https://www.meta.ai/",
-        "Connection": "keep-alive",
-        "Cookie": f'dpr=2; abra_csrf={meta_ai_cookies["abra_csrf"]}; datr={meta_ai_cookies["_js_datr"]}',
-        "Upgrade-Insecure-Requests": "1",
-        "Sec-Fetch-Dest": "document",
-        "Sec-Fetch-Mode": "navigate",
-        "Sec-Fetch-Site": "cross-site",
-        "Sec-Fetch-User": "?1",
-        "TE": "trailers",
-    }
-    session.get(url, headers=headers, data=payload)
-    cookies = session.cookies.get_dict()
-    if "abra_sess" not in cookies:
-        raise FacebookInvalidCredentialsException(
-            "Was not able to login to Facebook. Please check your credentials. "
-            "You may also have been rate limited. Try to connect to Facebook manually."
-        )
-    logging.info("Successfully logged in to Facebook.")
-    return cookies
+    return get_meta_ai_session(cookies, proxies)
 
 
 def get_cookies() -> dict:
