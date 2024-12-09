@@ -16,7 +16,7 @@ from meta_ai_api.utils import (
     get_meta_ai_session,
 )
 
-from meta_ai_api.utils import get_fb_session
+from meta_ai_api.utils import get_fb_session, get_session
 
 from meta_ai_api.exceptions import FacebookRegionBlocked
 
@@ -32,7 +32,7 @@ class MetaAI:
     def __init__(
         self, fb_email: str = None, fb_password: str = None, proxy: dict = None, fb_cookies: FbSessionCookies = None
     ):
-        self.session = requests.Session()
+        self.session = get_session()
         self.session.headers.update(
             {
                 "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
@@ -44,36 +44,12 @@ class MetaAI:
         self.fb_password = fb_password
         self.fb_cookies = fb_cookies
         self.proxy = proxy
-        if self.proxy and not self.check_proxy():
-            raise ConnectionError(
-                "Unable to connect to proxy. Please check your proxy settings."
-            )
 
         self.is_authed = (
             fb_password is not None and fb_email is not None) or fb_cookies is not None
         self.cookies = self.get_cookies()
         self.external_conversation_id = None
         self.offline_threading_id = None
-
-    def check_proxy(self, test_url: str = "https://api.ipify.org/?format=json") -> bool:
-        """
-        Checks the proxy connection by making a request to a test URL.
-
-        Args:
-            test_url (str): A test site from which we check that the proxy is installed correctly.
-
-        Returns:
-            bool: True if the proxy is working, False otherwise.
-        """
-        try:
-            response = self.session.get(
-                test_url, proxies=self.proxy, timeout=10)
-            if response.status_code == 200:
-                self.session.proxies = self.proxy
-                return True
-            return False
-        except requests.RequestException:
-            return False
 
     def get_access_token(self) -> str:
         """
@@ -102,7 +78,8 @@ class MetaAI:
         headers = {
             "content-type": "application/x-www-form-urlencoded",
             "cookie": f'_js_datr={self.cookies["_js_datr"]}; '
-            f'abra_csrf={self.cookies["abra_csrf"]}; datr={self.cookies["datr"]};',
+            f'abra_csrf={self.cookies["abra_csrf"]}; datr={
+                self.cookies["datr"]};',
             "sec-fetch-site": "same-origin",
             "x-fb-friendly-name": "useAbraAcceptTOSForTempUserMutation",
         }
@@ -218,7 +195,8 @@ class MetaAI:
         """
         if attempts <= MAX_RETRIES:
             logging.warning(
-                f"Was unable to obtain a valid response from Meta AI. Retrying... Attempt {attempts + 1}/{MAX_RETRIES}."
+                f"Was unable to obtain a valid response from Meta AI. Retrying... Attempt {
+                    attempts + 1}/{MAX_RETRIES}."
             )
             time.sleep(3)
             return self.prompt(message, stream=stream, attempts=attempts + 1)
@@ -300,7 +278,8 @@ class MetaAI:
         medias = self.extract_media(bot_response_message)
         return {"message": response, "sources": sources, "media": medias}
 
-    def extract_media(self, json_line: dict) -> List[Dict]:
+    @staticmethod
+    def extract_media(json_line: dict) -> List[Dict]:
         """
         Extract media from a parsed JSON line.
 
@@ -426,3 +405,4 @@ class MetaAI:
 if __name__ == "__main__":
     meta = MetaAI()
     resp = meta.prompt("What was the Warriors score last game?", stream=False)
+    print(resp)
